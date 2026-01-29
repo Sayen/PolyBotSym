@@ -1,0 +1,2 @@
+# PolyBotSym
+Polymarket TradingBot Simulator
