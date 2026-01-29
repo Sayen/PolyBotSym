@@ -23,3 +23,13 @@ polybot_data.json
 # --- Betriebssystem Dateien ---
 .DS_Store
 Thumbs.db
+
+# --- Additional Python/Project Patterns ---
+.env
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+coverage/
+.coverage
+htmlcov/

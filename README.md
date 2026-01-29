@@ -71,11 +71,13 @@ GLOBAL_CONFIG = {
 }
 ```
 #### Strategy Parameters (UI Level)
-##### Parameter	Description
-Start Balance:	The virtual amount of cash to start the simulation with.
-Min/Max Quote:	Probability range for entry (e.g., 0.90 - 0.98 for high probability bets).
-Max Time:	Filter markets by remaining time (e.g., only markets closing in < 30 mins).
-Min Liquidity:	Minimum liquidity required in the market to consider a trade.
-Stop Loss:	Multiplier (e.g., 0.75 simulates selling if value drops by 25%).
-Invest %:	Percentage of virtual balance to use per bet.
+
+| Parameter | Description |
+| :--- | :--- |
+| **Start Balance** | The virtual amount of cash to start the simulation with. |
+| **Min/Max Quote** | Probability range for entry (e.g., 0.90 - 0.98 for high probability bets). |
+| **Max Time** | Filter markets by remaining time (e.g., only markets closing in < 30 mins). |
+| **Min Liquidity** | Minimum liquidity required in the market to consider a trade. |
+| **Stop Loss** | Multiplier (e.g., 0.75 simulates selling if value drops by 25%). |
+| **Invest %** | Percentage of virtual balance to use per bet. |
 
