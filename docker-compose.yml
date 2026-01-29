@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  polybot:
+    build: .
+    container_name: polybot
+    ports:
+      - "5111:5111"
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+    environment:
+      - IS_DOCKER=true

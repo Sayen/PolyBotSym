@@ -15,7 +15,7 @@ DATA_FILE = "polybot_data.json"
 
 # Globale Server-Einstellungen
 GLOBAL_CONFIG = {
-    "port": 5000,
+    "port": 5111,
     "api_fetch_limit": 3000,
     "check_interval": 30
 }
@@ -626,5 +626,6 @@ if __name__ == "__main__":
     t = threading.Thread(target=engine.run, daemon=True)
     t.start()
     print(f"Server läuft auf http://127.0.0.1:{GLOBAL_CONFIG['port']}")
-    webbrowser.open(f"http://127.0.0.1:{GLOBAL_CONFIG['port']}")
+    if not os.environ.get("IS_DOCKER"):
+        webbrowser.open(f"http://127.0.0.1:{GLOBAL_CONFIG['port']}")
     app.run(debug=False, port=GLOBAL_CONFIG['port'], host="0.0.0.0")
