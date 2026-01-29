@@ -55,7 +55,24 @@ cd polybot-simulator
 ```bash
 pip install flask requests
 ```
-The dashboard will start automatically. Open your browser and visit: 👉 http://127.0.0.1:5000
+The dashboard will start automatically. Open your browser and visit: 👉 http://127.0.0.1:5111
+
+## 🐳 Docker Support (e.g., Synology NAS)
+This project includes full Docker support for easy deployment on a NAS or server.
+
+### 1. Build & Run
+Simply use `docker-compose`:
+```bash
+docker-compose up -d --build
+```
+
+### 2. Access
+The dashboard will be available at: 👉 http://YOUR-NAS-IP:5111
+
+### 📝 Persistence
+The `docker-compose.yml` mounts the current directory to `/app` inside the container.
+* **Strategies:** All data is saved to `polybot_data.json` on your host machine.
+* **Updates:** You can edit `polybot.py` locally and restart the container to apply changes.
 
 ### ⚙️ Configuration
 You can configure and tune strategies directly via the Web UI. Simulation data is saved locally to polybot_data.json.
@@ -65,7 +82,7 @@ Performance settings can be adjusted in polybot.py:
 
 ```python
 GLOBAL_CONFIG = {
-    "port": 5000,             # Web Interface Port
+    "port": 5111,             # Web Interface Port (Changed for Synology compatibility)
     "api_fetch_limit": 3000,  # Max markets to scan per cycle
     "check_interval": 30      # Seconds between scans
 }
