@@ -1,0 +1,25 @@
+# --- Python Standard ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+
+# --- PolyBot Data (WICHTIG) ---
+# Verhindert, dass deine Simulations-Historie und Strategien
+# auf GitHub hochgeladen werden.
+polybot_data.json
+*.log
+
+# --- IDE / Editor Settings ---
+.vscode/
+.idea/
+*.swp
+
+# --- Betriebssystem Dateien ---
+.DS_Store
+Thumbs.db
