@@ -4,6 +4,8 @@ import time
 import threading
 import webbrowser
 import os
+import sys
+import hashlib
 import concurrent.futures
 import uuid
 from collections import deque
@@ -12,6 +14,7 @@ from flask import Flask, render_template_string, request, redirect, url_for, jso
 
 # --- KONFIGURATION ---
 DATA_FILE = "polybot_data.json"
+REMOTE_URL = "https://raw.githubusercontent.com/Sayen/PolyBotSym/refs/heads/main/polybot.py"
 
 # Globale Server-Einstellungen
 GLOBAL_CONFIG = {
@@ -20,6 +23,7 @@ GLOBAL_CONFIG = {
     "check_interval": 30,
     "debug": False
 }
+UPDATE_AVAILABLE = False
 
 # --- LOGGING ---
 log_buffer = deque(maxlen=200)
@@ -28,6 +32,52 @@ def sys_log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[SYSTEM] {msg}")
     log_buffer.appendleft(f"[{ts}] {msg}")
+
+# --- UPDATE LOGIC ---
+def get_file_hash(content):
+    return hashlib.sha256(content).hexdigest()
+
+def check_for_updates_logic():
+    global UPDATE_AVAILABLE
+    try:
+        sys_log("Prüfe auf Updates...")
+        r = requests.get(REMOTE_URL, timeout=10)
+        if r.status_code == 200:
+            remote_content = r.content
+            with open(__file__, "rb") as f:
+                local_content = f.read()
+
+            # Simple Hash Comparison
+            if get_file_hash(remote_content) != get_file_hash(local_content):
+                UPDATE_AVAILABLE = True
+                sys_log("⚠️ Ein neues Update ist verfügbar!")
+                return True, remote_content
+            else:
+                UPDATE_AVAILABLE = False
+                sys_log("System ist auf dem neuesten Stand.")
+                return False, None
+    except Exception as e:
+        sys_log(f"Fehler beim Update-Check: {e}")
+        return False, None
+    return False, None
+
+def perform_update_logic():
+    try:
+        sys_log("Starte Update-Prozess...")
+        success, content = check_for_updates_logic()
+        if content:
+            with open(__file__, "wb") as f:
+                f.write(content)
+            sys_log("Update erfolgreich! Neustart wird initiiert...")
+            return True
+    except Exception as e:
+        sys_log(f"Update fehlgeschlagen: {e}")
+    return False
+
+def restart_server():
+    sys_log("♻️ Server wird neu gestartet...")
+    time.sleep(1)
+    os.execv(sys.executable, ['python'] + sys.argv)
 
 # --- STRATEGIE KLASSE ---
 class Strategy:
@@ -116,7 +166,10 @@ app.secret_key = "polybot_secret"
 # --- TEMPLATES ---
 
 HTML_NAVBAR_STATS = """
-Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span>
+Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span> |
+<a href="#" hx-get="/check_update" hx-target="#updateModalBody" data-bs-toggle="modal" data-bs-target="#updateModal" class="text-decoration-none ms-2">
+    <i class="bi bi-cloud-arrow-down-fill {{ 'text-warning' if update_available else 'text-secondary' }}" data-bs-toggle="tooltip" title="Updates prüfen"></i>
+</a>
 """
 
 HTML_LOGS_ROWS = """
@@ -258,6 +311,24 @@ HTML_BASE = """
 
     <div class="container-fluid p-4">
         {{ content|safe }}
+    </div>
+
+    <!-- Update Modal -->
+    <div class="modal fade" id="updateModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Update Prüfung</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="updateModalBody">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border text-primary me-3" role="status"></div>
+                        <span>Prüfe GitHub auf Updates...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -498,11 +569,12 @@ HTML_MASS_EDIT = """
 @app.route("/")
 def home():
     content = render_template_string(HTML_HOME_CONTENT, strategies=strategies, sys_logs=log_buffer)
-    return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")))
+    navbar_stats = render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"), update_available=UPDATE_AVAILABLE)
+    return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=navbar_stats)
 
 @app.route("/poll/navbar")
 def poll_navbar():
-    return render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"))
+    return render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"), update_available=UPDATE_AVAILABLE)
 
 @app.route("/poll/strategies")
 def poll_strategies():
@@ -602,6 +674,56 @@ def reorder_strategies():
     for uid, s in strategies.items():
         if uid not in new_map: new_map[uid] = s
     strategies = new_map; save_data(); return jsonify({"status":"ok"})
+
+@app.route("/check_update")
+def check_update_route():
+    has_update, _ = check_for_updates_logic()
+    if has_update:
+        return """
+        <div class="text-center">
+            <h4 class="text-warning"><i class="bi bi-exclamation-triangle"></i> Neue Version verfügbar!</h4>
+            <p>Es wurde eine neuere Version auf GitHub gefunden.</p>
+            <p class="text-muted small">Das System wird beim Update automatisch neu gestartet.</p>
+            <form action="/perform_update" method="post" class="d-grid gap-2">
+                <button type="submit" class="btn btn-success">Jetzt Aktualisieren & Neustarten</button>
+            </form>
+        </div>
+        """
+    else:
+        return """
+        <div class="text-center text-success">
+            <h4><i class="bi bi-check-circle"></i> System aktuell</h4>
+            <p>Keine neuen Updates gefunden.</p>
+        </div>
+        """
+
+@app.route("/perform_update", methods=["POST"])
+def perform_update_route():
+    # Attempt update
+    success = perform_update_logic()
+    if success:
+        # Restart in thread to allow response to be sent
+        def restart_later():
+            time.sleep(2)
+            restart_server()
+        threading.Thread(target=restart_later).start()
+
+        return """
+        <div class="text-center text-success">
+            <h4>Update erfolgreich!</h4>
+            <p>Der Server startet neu. Bitte warten...</p>
+            <script>
+                setTimeout(function(){ window.location.href = "/"; }, 5000);
+            </script>
+        </div>
+        """
+    else:
+        return """
+        <div class="text-center text-danger">
+            <h4>Update fehlgeschlagen!</h4>
+            <p>Bitte Logs prüfen.</p>
+        </div>
+        """
 
 @app.route("/action/<action>/<id>")
 def action(action, id):
@@ -931,6 +1053,9 @@ class Engine:
             time.sleep(GLOBAL_CONFIG["check_interval"])
 
 if __name__ == "__main__":
+    # Start Update Check on Boot
+    threading.Thread(target=check_for_updates_logic, daemon=True).start()
+
     engine = Engine()
     t = threading.Thread(target=engine.run, daemon=True)
     t.start()
