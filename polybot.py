@@ -147,21 +147,21 @@ HTML_TEMPLATE = """
     <nav class="navbar navbar-expand-lg navbar-dark px-4">
         <a class="navbar-brand fw-bold" href="/"><i class="bi bi-robot"></i> PolyBot <span class="text-primary">Pro Edition</span></a>
         <div class="mx-4">
-            <div class="btn-group">
+            <div class="d-flex gap-2">
                 <a href="/global_action/start_all" class="btn btn-outline-success btn-sm"><i class="bi bi-play-fill"></i> Alle Starten</a>
                 <a href="/global_action/stop_all" class="btn btn-outline-danger btn-sm"><i class="bi bi-stop-fill"></i> Alle Stoppen</a>
-                <a href="/global_action/reset_all" class="btn btn-outline-warning btn-sm" onclick="return confirm('ALLES Resetten?')"><i class="bi bi-arrow-counterclockwise"></i> Alles Resetten</a>
+                <a href="/global_action/reset_all" class="btn btn-outline-warning btn-sm" onclick="return confirm('ALLES zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Alles zurücksetzen</a>
             </div>
         </div>
         <div class="ms-auto text-muted small">
-            Scanne: {{ global_limit }} Mkts | Update: <span id="lastUpdate">{{ last_update }}</span>
+            Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span>
         </div>
     </nav>
 
     <div class="container-fluid p-4">
         {% if view == 'home' %}
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4>Strategie Dashboard</h4>
+            <h4>Strategie-Übersicht</h4>
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newStratModal"><i class="bi bi-plus-lg"></i> Neue Strategie</button>
         </div>
         <div class="card">
@@ -170,7 +170,7 @@ HTML_TEMPLATE = """
                     <thead>
                         <tr class="text-muted small text-uppercase">
                             <th style="width: 30px"></th>
-                            <th>Status</th><th>Name</th><th>Equity</th><th>Cash</th><th>Offen</th><th>W/L</th><th>Filter</th><th class="text-end">Aktionen</th>
+                            <th>Status</th><th>Name</th><th>Gesamtwert</th><th>Verfügbar</th><th>Offen</th><th>S/N</th><th>Filter</th><th class="text-end">Aktionen</th>
                         </tr>
                     </thead>
                     <tbody id="strategyList">
@@ -178,7 +178,19 @@ HTML_TEMPLATE = """
                         <tr data-id="{{ id }}" style="cursor: pointer;" onclick="window.location='/strategy/{{ id }}'">
                             <td class="drag-handle" onclick="event.stopPropagation();"><i class="bi bi-grip-vertical fs-5"></i></td>
                             <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
-                            <td class="fw-bold text-white">{{ s.name }}</td>
+                            <td class="fw-bold text-white">
+                                <span data-bs-toggle="tooltip" data-bs-html="true" title="
+                                    <div class='text-start'>
+                                        <b>Min Quote:</b> {{ s.min_prob }}<br>
+                                        <b>Max Quote:</b> {{ s.max_prob }}<br>
+                                        <b>Max Zeit:</b> {{ s.max_time_min }}m<br>
+                                        <b>Invest:</b> {{ '%.1f'|format(s.bet_percentage*100) }}%<br>
+                                        <b>Min Liquidität:</b> ${{ s.min_liquidity }}<br>
+                                        <b>Stop Loss:</b> {{ s.stop_loss_trigger }}x
+                                    </div>">
+                                    {{ s.name }}
+                                </span>
+                            </td>
                             <td class="fw-bold text-primary">${{ "%.2f"|format(s.get_equity()) }}</td>
                             <td>${{ "%.2f"|format(s.balance) }}</td>
                             <td>{{ s.active_bets|length }}</td>
@@ -190,9 +202,9 @@ HTML_TEMPLATE = """
                                 {% else %}
                                 <a href="/action/start/{{ id }}" class="btn btn-outline-success btn-sm" title="Starten"><i class="bi bi-play-fill"></i></a>
                                 {% endif %}
-                                <a href="/action/reset/{{ id }}" class="btn btn-outline-warning btn-sm" onclick="return confirm('Reset?')" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></a>
+                                <a href="/action/reset/{{ id }}" class="btn btn-outline-warning btn-sm" onclick="return confirm('Zurücksetzen?')" title="Zurücksetzen"><i class="bi bi-arrow-counterclockwise"></i></a>
                                 <a href="/action/duplicate/{{ id }}" class="btn btn-outline-primary btn-sm" title="Duplizieren"><i class="bi bi-files"></i></a>
-                                <a href="/strategy/{{ id }}#config" class="btn btn-outline-secondary btn-sm" title="Settings"><i class="bi bi-gear"></i></a>
+                                <a href="/strategy/{{ id }}#config" class="btn btn-outline-secondary btn-sm" title="Einstellungen"><i class="bi bi-gear"></i></a>
                                 <a href="/action/delete/{{ id }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Löschen?')" title="Löschen"><i class="bi bi-trash"></i></a>
                             </td>
                         </tr>
@@ -201,7 +213,7 @@ HTML_TEMPLATE = """
                 </table>
             </div>
         </div>
-        <div class="card mt-4"><div class="card-header">System Logs</div><div class="log-box">{% for line in sys_logs %}<div>{{ line }}</div>{% endfor %}</div></div>
+        <div class="card mt-4"><div class="card-header">System-Protokolle</div><div class="log-box">{% for line in sys_logs %}<div>{{ line }}</div>{% endfor %}</div></div>
         
         <div class="modal fade" id="newStratModal" tabindex="-1">
             <div class="modal-dialog">
@@ -219,20 +231,20 @@ HTML_TEMPLATE = """
         {% elif view == 'detail' %}
         <div class="d-flex align-items-center mb-4">
             <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
-            <h3 class="m-0">{{ strat.name }} <span class="badge {{ 'bg-success' if strat.is_running else 'bg-danger' }} fs-6 align-middle ms-2">{{ 'RUNNING' if strat.is_running else 'PAUSED' }}</span></h3>
-            <div class="ms-auto"><a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Reset Stats?')"><i class="bi bi-arrow-counterclockwise"></i> Reset Stats</a></div>
+            <h3 class="m-0">{{ strat.name }} <span class="badge {{ 'bg-success' if strat.is_running else 'bg-danger' }} fs-6 align-middle ms-2">{{ 'LÄUFT' if strat.is_running else 'PAUSIERT' }}</span></h3>
+            <div class="ms-auto"><a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Statistik zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Statistik zurücksetzen</a></div>
         </div>
         <div class="row g-3 mb-4">
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>EQUITY</small><h2 class="text-primary">${{ "%.2f"|format(strat.get_equity()) }}</h2></div></div>
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>CASH</small><h2>${{ "%.2f"|format(strat.balance) }}</h2></div></div>
+            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>GESAMTWERT</small><h2 class="text-primary">${{ "%.2f"|format(strat.get_equity()) }}</h2></div></div>
+            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>VERFÜGBAR</small><h2>${{ "%.2f"|format(strat.balance) }}</h2></div></div>
             <div class="col-md-3"><div class="card p-3 text-center h-100"><small>OFFEN</small><h2>{{ strat.active_bets|length }}</h2></div></div>
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>WIN RATE</small><h2>{{ strat.wins }} W / {{ strat.losses }} L</h2></div></div>
+            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>GEWINNRATE</small><h2>{{ strat.wins }} S / {{ strat.losses }} N</h2></div></div>
         </div>
         <ul class="nav nav-tabs mb-3" id="detailTabs">
             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#active_tab">Aktive Wetten</a></li>
             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#history_tab">Historie</a></li>
             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#config_tab">Konfiguration</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#logs_tab">Logs</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#logs_tab">Protokolle</a></li>
         </ul>
         <div class="tab-content">
             <div class="tab-pane fade show active" id="active_tab">
@@ -292,6 +304,10 @@ HTML_TEMPLATE = """
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function(){
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+              return new bootstrap.Tooltip(tooltipTriggerEl)
+            })
             var hash = window.location.hash;
             if(hash) { var tid = hash + "_tab"; var trig = document.querySelector(`a[href="${tid}"]`); if(trig) new bootstrap.Tab(trig).show(); } 
             else { var at = localStorage.getItem('activeTab_v28'); if(at) { var t = document.querySelector(`a[href="${at}"]`); if(t) new bootstrap.Tab(t).show(); } }
