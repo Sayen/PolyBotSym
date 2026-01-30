@@ -33,6 +33,7 @@
 * **Liquidity Filters:** Ensures strategies only target markets with sufficient volume.
 
 ### 📊 Advanced Dashboard
+* **Live UI:** Seamless updates without page reloads using HTMX (polling every 2s).
 * **Multi-Strategy Support:** Run aggressive and conservative strategies side-by-side.
 * **Real-Time Logs:** See exactly why a trade was taken (or rejected) with detailed ROI stats.
 * **Live Metrics:** Monitor Virtual Equity, Cash, Open Positions, and Win/Loss Ratios.
@@ -97,4 +98,3 @@ GLOBAL_CONFIG = {
 | **Min Liquidity** | Minimum liquidity required in the market to consider a trade. |
 | **Stop Loss** | Multiplier (e.g., 0.75 simulates selling if value drops by 25%). |
 | **Invest %** | Percentage of virtual balance to use per bet. |
-
