@@ -314,6 +314,16 @@ HTML_BASE = """
         });
 
         // HTMX Hooks
+        document.addEventListener("htmx:beforeSwap", function(evt) {
+             // Dispose of tooltips within the target to prevent "sticking"
+             var target = evt.detail.target;
+             var tooltips = target.querySelectorAll('[data-bs-toggle="tooltip"]');
+             tooltips.forEach(function(el) {
+                 var instance = bootstrap.Tooltip.getInstance(el);
+                 if(instance) instance.dispose();
+             });
+        });
+
         document.addEventListener("htmx:afterSwap", function(evt) {
             initTooltips();
             // Re-init Sortable only if we swapped the strategy list
