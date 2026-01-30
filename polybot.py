@@ -17,7 +17,8 @@ DATA_FILE = "polybot_data.json"
 GLOBAL_CONFIG = {
     "port": 5111,
     "api_fetch_limit": 3000,
-    "check_interval": 30
+    "check_interval": 30,
+    "debug": False
 }
 
 # --- LOGGING ---
@@ -151,6 +152,7 @@ HTML_TEMPLATE = """
                 <a href="/global_action/start_all" class="btn btn-outline-success btn-sm"><i class="bi bi-play-fill"></i> Alle Starten</a>
                 <a href="/global_action/stop_all" class="btn btn-outline-danger btn-sm"><i class="bi bi-stop-fill"></i> Alle Stoppen</a>
                 <a href="/global_action/reset_all" class="btn btn-outline-warning btn-sm" onclick="return confirm('ALLES zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Alles zurücksetzen</a>
+                <a href="/global_action/toggle_debug" class="btn btn-outline-{{ 'info' if debug_mode else 'secondary' }} btn-sm" title="Debug Modus umschalten"><i class="bi bi-bug"></i> Debug: {{ 'ON' if debug_mode else 'OFF' }}</a>
             </div>
         </div>
         <div class="ms-auto text-muted small">
@@ -323,9 +325,9 @@ HTML_TEMPLATE = """
 
 # --- ROUTES ---
 @app.route("/")
-def home(): return render_template_string(HTML_TEMPLATE, view='home', strategies=strategies, sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"))
+def home(): return render_template_string(HTML_TEMPLATE, view='home', strategies=strategies, sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"))
 @app.route("/strategy/<id>")
-def strategy_detail(id): return render_template_string(HTML_TEMPLATE, view='detail', strat=strategies.get(id), sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")) if id in strategies else redirect("/")
+def strategy_detail(id): return render_template_string(HTML_TEMPLATE, view='detail', strat=strategies.get(id), sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S")) if id in strategies else redirect("/")
 @app.route("/create_strategy", methods=["POST"])
 def create_strategy():
     s = Strategy(); s.name = request.form.get("name")
@@ -410,6 +412,11 @@ def action(action, id):
     return redirect("/")
 @app.route("/global_action/<action>")
 def global_action(action):
+    if action == "toggle_debug":
+        GLOBAL_CONFIG["debug"] = not GLOBAL_CONFIG.get("debug", False)
+        sys_log(f"Debug Modus {'aktiviert' if GLOBAL_CONFIG['debug'] else 'deaktiviert'}.")
+        return redirect(request.referrer or "/")
+
     for s in list(strategies.values()):
         if action == "start_all": s.is_running = True
         elif action == "stop_all": s.is_running = False
@@ -440,7 +447,12 @@ class Engine:
                     "limit": str(batch), "offset": str(o)
                 }, timeout=10)
                 if r.status_code == 200: return r.json()
-            except: pass
+
+                if GLOBAL_CONFIG.get("debug"):
+                    sys_log(f"DEBUG Batch-Fehler (Offset {o}): Status {r.status_code} - {r.reason}")
+            except Exception as e:
+                if GLOBAL_CONFIG.get("debug"):
+                    sys_log(f"DEBUG Batch-Exception (Offset {o}): {e}")
             return []
 
         # Paralleles Fetching (IO Bound)
@@ -677,6 +689,9 @@ class Engine:
                 
                 duration = time.time() - start_time
                 sys_log(f"Scan fertig: {len(markets)} Märkte verarbeitet ({duration:.2f}s).")
+
+                if GLOBAL_CONFIG.get("debug") and len(markets) < GLOBAL_CONFIG["api_fetch_limit"]:
+                    sys_log(f"⚠️ DEBUG: Ziel verfehlt! {len(markets)}/{GLOBAL_CONFIG['api_fetch_limit']} Märkte. Mögliche API-Limits oder Timeouts.")
                 
             except Exception as e:
                 sys_log(f"Fehler im Loop: {e}")
