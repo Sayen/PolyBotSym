@@ -152,6 +152,7 @@ HTML_TEMPLATE = """
                 <a href="/global_action/start_all" class="btn btn-outline-success btn-sm"><i class="bi bi-play-fill"></i> Alle Starten</a>
                 <a href="/global_action/stop_all" class="btn btn-outline-danger btn-sm"><i class="bi bi-stop-fill"></i> Alle Stoppen</a>
                 <a href="/global_action/reset_all" class="btn btn-outline-warning btn-sm" onclick="return confirm('ALLES zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Alles zurücksetzen</a>
+                <a href="/mass_edit" class="btn btn-outline-primary btn-sm"><i class="bi bi-list-check"></i> Massenbearbeitung</a>
                 <a href="/global_action/toggle_debug" class="btn btn-outline-{{ 'info' if debug_mode else 'secondary' }} btn-sm" title="Debug Modus umschalten"><i class="bi bi-bug"></i> Debug: {{ 'ON' if debug_mode else 'OFF' }}</a>
             </div>
         </div>
@@ -234,7 +235,13 @@ HTML_TEMPLATE = """
         <div class="d-flex align-items-center mb-4">
             <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
             <h3 class="m-0">{{ strat.name }} <span class="badge {{ 'bg-success' if strat.is_running else 'bg-danger' }} fs-6 align-middle ms-2">{{ 'LÄUFT' if strat.is_running else 'PAUSIERT' }}</span></h3>
-            <div class="ms-auto"><a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Statistik zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Statistik zurücksetzen</a></div>
+            <div class="ms-auto d-flex gap-2">
+                <div class="btn-group me-2">
+                    <a href="{{ '/strategy/' + prev_id if prev_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not prev_id else '' }}"><i class="bi bi-chevron-left"></i></a>
+                    <a href="{{ '/strategy/' + next_id if next_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not next_id else '' }}"><i class="bi bi-chevron-right"></i></a>
+                </div>
+                <a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Statistik zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Statistik zurücksetzen</a>
+            </div>
         </div>
         <div class="row g-3 mb-4">
             <div class="col-md-3"><div class="card p-3 text-center h-100"><small>GESAMTWERT</small><h2 class="text-primary">${{ "%.2f"|format(strat.get_equity()) }}</h2></div></div>
@@ -288,11 +295,11 @@ HTML_TEMPLATE = """
                         <div class="row g-3">
                             <div class="col-md-6"><label>Name</label><input type="text" class="form-control" name="name" value="{{ strat.name }}"></div>
                             <div class="col-md-6"><label>Kategorie</label><input type="text" class="form-control" name="category_filter" value="{{ strat.category_filter }}"></div>
-                            <div class="col-md-3"><label>Min Quote</label><input type="number" step="0.01" class="form-control" name="min_prob" value="{{ strat.min_prob }}"></div>
-                            <div class="col-md-3"><label>Max Quote</label><input type="number" step="0.01" class="form-control" name="max_prob" value="{{ strat.max_prob }}"></div>
+                            <div class="col-md-3"><label>Min Quote</label><input type="number" step="0.001" class="form-control" name="min_prob" value="{{ strat.min_prob }}"></div>
+                            <div class="col-md-3"><label>Max Quote</label><input type="number" step="0.001" class="form-control" name="max_prob" value="{{ strat.max_prob }}"></div>
                             <div class="col-md-3"><label>Max Zeit (Min)</label><input type="number" class="form-control" name="max_time_min" value="{{ strat.max_time_min }}"></div>
-                            <div class="col-md-3"><label>Invest %</label><input type="number" step="0.01" class="form-control" name="bet_percentage" value="{{ strat.bet_percentage }}"></div>
-                            <div class="col-md-6"><label>Stop Loss (x)</label><input type="number" step="0.01" class="form-control text-danger border-danger" name="stop_loss_trigger" value="{{ strat.stop_loss_trigger }}"><small class="text-muted">0 = Deaktiviert</small></div>
+                            <div class="col-md-3"><label>Invest %</label><input type="number" step="0.001" class="form-control" name="bet_percentage" value="{{ strat.bet_percentage }}"></div>
+                            <div class="col-md-6"><label>Stop Loss (x)</label><input type="number" step="0.001" class="form-control text-danger border-danger" name="stop_loss_trigger" value="{{ strat.stop_loss_trigger }}"><small class="text-muted">0 = Deaktiviert</small></div>
                             <div class="col-md-6"><label>Min Liq ($)</label><input type="number" class="form-control" name="min_liquidity" value="{{ strat.min_liquidity }}"></div>
                             <div class="col-12 mt-3"><button type="submit" class="btn btn-primary w-100">Einstellungen Speichern</button></div>
                         </div>
@@ -300,6 +307,63 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             <div class="tab-pane fade" id="logs_tab"><div class="log-box">{% for line in strat.logs %}<div>{{ line }}</div>{% endfor %}</div></div>
+        </div>
+        {% elif view == 'mass_edit' %}
+        <div class="d-flex align-items-center mb-4">
+            <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
+            <h4>Massenbearbeitung</h4>
+        </div>
+        <div class="card p-4">
+            <form action="/mass_edit_apply" method="post">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Parameter auswählen</label>
+                        <select class="form-select bg-dark text-white border-secondary" name="field">
+                            <option value="category_filter">Kategorie</option>
+                            <option value="min_prob">Min Quote</option>
+                            <option value="max_prob">Max Quote</option>
+                            <option value="max_time_min">Max Zeit (Min)</option>
+                            <option value="bet_percentage">Invest %</option>
+                            <option value="stop_loss_trigger">Stop Loss (x)</option>
+                            <option value="min_liquidity">Min Liquidität ($)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Neuer Wert</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" name="value" placeholder="Wert eingeben..." required>
+                    </div>
+                </div>
+
+                <h5 class="mt-4 mb-3">Strategien auswählen</h5>
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px"><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.strat-check').forEach(c => c.checked = this.checked)"></th>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Aktueller Wert</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for id, s in strategies.items() %}
+                            <tr>
+                                <td><input type="checkbox" class="form-check-input strat-check" name="strategy_ids" value="{{ id }}"></td>
+                                <td>{{ s.name }}</td>
+                                <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
+                                <td class="text-muted small">
+                                    MinQ: {{ s.min_prob }} | MaxQ: {{ s.max_prob }} | Kat: {{ s.category_filter }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-4 border-top border-secondary pt-3">
+                    <button type="submit" class="btn btn-primary" onclick="return confirm('Sicher? Diese Änderung betrifft alle ausgewählten Strategien.')">Änderungen anwenden</button>
+                </div>
+            </form>
         </div>
         {% endif %}
     </div>
@@ -327,7 +391,20 @@ HTML_TEMPLATE = """
 @app.route("/")
 def home(): return render_template_string(HTML_TEMPLATE, view='home', strategies=strategies, sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"))
 @app.route("/strategy/<id>")
-def strategy_detail(id): return render_template_string(HTML_TEMPLATE, view='detail', strat=strategies.get(id), sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S")) if id in strategies else redirect("/")
+def strategy_detail(id):
+    if id not in strategies: return redirect("/")
+
+    # Navigation Logic
+    keys = list(strategies.keys())
+    idx = keys.index(id)
+    prev_id = keys[idx-1] if idx > 0 else None
+    next_id = keys[idx+1] if idx < len(keys)-1 else None
+
+    return render_template_string(HTML_TEMPLATE, view='detail', strat=strategies.get(id),
+                                  prev_id=prev_id, next_id=next_id,
+                                  sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'],
+                                  debug_mode=GLOBAL_CONFIG.get('debug', False),
+                                  last_update=datetime.now().strftime("%H:%M:%S"))
 @app.route("/create_strategy", methods=["POST"])
 def create_strategy():
     s = Strategy(); s.name = request.form.get("name")
@@ -422,6 +499,43 @@ def global_action(action):
         elif action == "stop_all": s.is_running = False
         elif action == "reset_all": s.reset_stats()
     save_data(); return redirect("/")
+
+@app.route("/mass_edit")
+def mass_edit():
+    return render_template_string(HTML_TEMPLATE, view='mass_edit', strategies=strategies,
+                                  sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'],
+                                  debug_mode=GLOBAL_CONFIG.get('debug', False),
+                                  last_update=datetime.now().strftime("%H:%M:%S"))
+
+@app.route("/mass_edit_apply", methods=["POST"])
+def mass_edit_apply():
+    field = request.form.get("field")
+    value = request.form.get("value")
+    ids = request.form.getlist("strategy_ids")
+
+    if not ids: return redirect("/mass_edit")
+
+    count = 0
+    for id in ids:
+        if id in strategies:
+            s = strategies[id]
+            try:
+                if field in ["min_prob", "max_prob", "bet_percentage", "stop_loss_trigger", "min_liquidity"]:
+                    val = float(value.replace(",", "."))
+                    setattr(s, field, val)
+                elif field == "max_time_min":
+                    val = int(value)
+                    setattr(s, field, val)
+                elif field == "category_filter":
+                    setattr(s, field, str(value).strip())
+                count += 1
+            except: pass
+
+    if count > 0:
+        save_data()
+        sys_log(f"Massenänderung: {field} = {value} für {count} Strategien.")
+
+    return redirect("/")
 
 # --- OPTIMIERTE ENGINE ---
 class Engine:
