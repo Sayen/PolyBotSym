@@ -42,7 +42,7 @@ class Strategy:
             self.is_running = False
             self.balance = 1000.0
             self.initial_balance = 1000.0
-            
+
             self.category_filter = ""
             self.min_prob = 0.90
             self.max_prob = 0.98
@@ -51,7 +51,7 @@ class Strategy:
             self.max_spread = 0.05
             self.stop_loss_trigger = 0.75
             self.bet_percentage = 0.05
-            
+
             self.active_bets = []
             self.history = []
             self.wins = 0
@@ -86,7 +86,7 @@ class Strategy:
         return self.__dict__
 
 # --- DATA MANAGER ---
-strategies = {} 
+strategies = {}
 
 def save_data():
     try:
@@ -102,7 +102,7 @@ def load_data():
         try:
             with open(DATA_FILE, 'r') as f:
                 raw = json.load(f)
-                strategies = {} 
+                strategies = {}
                 for id, data in raw.items():
                     strategies[id] = Strategy(data)
             sys_log(f"{len(strategies)} Strategien geladen.")
@@ -113,7 +113,101 @@ def load_data():
 app = Flask(__name__)
 app.secret_key = "polybot_secret"
 
-HTML_TEMPLATE = """
+# --- TEMPLATES ---
+
+HTML_NAVBAR_STATS = """
+Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span>
+"""
+
+HTML_LOGS_ROWS = """
+{% for line in sys_logs %}<div>{{ line }}</div>{% endfor %}
+"""
+
+HTML_STRATEGIES_ROWS = """
+{% for id, s in strategies.items() %}
+<tr data-id="{{ id }}" style="cursor: pointer;" onclick="window.location='/strategy/{{ id }}'">
+    <td class="drag-handle" onclick="event.stopPropagation();"><i class="bi bi-grip-vertical fs-5"></i></td>
+    <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
+    <td class="fw-bold text-white">
+        <span data-bs-toggle="tooltip" data-bs-html="true" title="
+            <div class='text-start'>
+                <b>Min Quote:</b> {{ s.min_prob }}<br>
+                <b>Max Quote:</b> {{ s.max_prob }}<br>
+                <b>Max Zeit:</b> {{ s.max_time_min }}m<br>
+                <b>Invest:</b> {{ '%.1f'|format(s.bet_percentage*100) }}%<br>
+                <b>Min Liquidität:</b> ${{ s.min_liquidity }}<br>
+                <b>Stop Loss:</b> {{ s.stop_loss_trigger }}x
+            </div>">
+            {{ s.name }}
+        </span>
+    </td>
+    <td class="fw-bold text-primary">${{ "%.2f"|format(s.get_equity()) }}</td>
+    <td>${{ "%.2f"|format(s.balance) }}</td>
+    <td>{{ s.active_bets|length }}</td>
+    <td><span class="text-win">{{ s.wins }}</span>/<span class="text-loss">{{ s.losses }}</span></td>
+    <td class="small text-muted">{{ s.category_filter if s.category_filter else "ALLE" }}</td>
+    <td class="text-end" onclick="event.stopPropagation();">
+        {% if s.is_running %}
+        <a href="/action/stop/{{ id }}" class="btn btn-outline-danger btn-sm" title="Stoppen"><i class="bi bi-pause-fill"></i></a>
+        {% else %}
+        <a href="/action/start/{{ id }}" class="btn btn-outline-success btn-sm" title="Starten"><i class="bi bi-play-fill"></i></a>
+        {% endif %}
+        <a href="/action/reset/{{ id }}" class="btn btn-outline-warning btn-sm" onclick="return confirm('Zurücksetzen?')" title="Zurücksetzen"><i class="bi bi-arrow-counterclockwise"></i></a>
+        <a href="/action/duplicate/{{ id }}" class="btn btn-outline-primary btn-sm" title="Duplizieren"><i class="bi bi-files"></i></a>
+        <a href="/strategy/{{ id }}#config" class="btn btn-outline-secondary btn-sm" title="Einstellungen"><i class="bi bi-gear"></i></a>
+        <a href="/action/delete/{{ id }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Löschen?')" title="Löschen"><i class="bi bi-trash"></i></a>
+    </td>
+</tr>
+{% else %}<tr><td colspan="9" class="text-center p-5 text-muted">Keine Strategien.</td></tr>{% endfor %}
+"""
+
+HTML_DETAIL_STATS = """
+<div class="col-md-3"><div class="card p-3 text-center h-100"><small>GESAMTWERT</small><h2 class="text-primary">${{ "%.2f"|format(strat.get_equity()) }}</h2></div></div>
+<div class="col-md-3"><div class="card p-3 text-center h-100"><small>VERFÜGBAR</small><h2>${{ "%.2f"|format(strat.balance) }}</h2></div></div>
+<div class="col-md-3"><div class="card p-3 text-center h-100"><small>OFFEN</small><h2>{{ strat.active_bets|length }}</h2></div></div>
+<div class="col-md-3"><div class="card p-3 text-center h-100"><small>GEWINNRATE</small><h2>{{ strat.wins }} S / {{ strat.losses }} N</h2></div></div>
+"""
+
+HTML_DETAIL_ACTIVE_BETS = """
+<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead><tr class="text-muted small"><th>Markt</th><th>Wahl</th><th>Invest</th><th>Einstieg</th><th>Live</th><th>Wert</th><th>Zeit</th></tr></thead>
+    <tbody>
+        {% for bet in strat.active_bets %}
+        <tr>
+            <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;"><a href="https://polymarket.com/event/{{ bet.slug }}" target="_blank" class="text-white text-decoration-underline">{{ bet.title }}</a></td>
+            <td><span class="badge bg-info text-dark">{{ bet.picked_outcome }}</span></td>
+            <td>${{ "%.2f"|format(bet.amount) }}</td>
+            <td>{{ "%.1f"|format(bet.entry_price*100) }}%</td>
+            <td><span class="{{ 'text-win' if bet.current_price > bet.entry_price else 'text-loss' if bet.current_price < bet.entry_price else 'text-muted' }}">{{ "%.1f"|format(bet.current_price*100) }}%</span></td>
+            <td>${{ "%.2f"|format((bet.amount/bet.entry_price)*bet.current_price) }}</td>
+            <td>{{ bet.get('time_str', 'Berechne...') }}</td>
+        </tr>
+        {% else %}<tr><td colspan="7" class="text-center p-4 text-muted">Keine Positionen.</td></tr>{% endfor %}
+    </tbody>
+</table></div>
+"""
+
+HTML_DETAIL_HISTORY = """
+<div class="table-responsive"><table class="table table-striped table-hover mb-0">
+    <thead><tr><th>Zeit</th><th>Status</th><th>Markt</th><th>P/L</th></tr></thead>
+    <tbody>
+        {% for h in strat.history|reverse %}
+        <tr>
+            <td>{{ h.close_time[11:19] }}</td>
+            <td><span class="badge {{ 'bg-success' if h.status=='WIN' else 'bg-danger' }}">{{ h.status }}</span></td>
+            <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis;">{% if h.slug %}<a href="https://polymarket.com/event/{{ h.slug }}" target="_blank" class="text-white text-decoration-underline">{{ h.title }}</a>{% else %}{{ h.title }}{% endif %}</td>
+            <td class="{{ 'text-win' if h.pnl > 0 else 'text-loss' }} fw-bold">{{ "%.2f"|format(h.pnl) }}$</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table></div>
+"""
+
+HTML_DETAIL_LOGS = """
+<div class="log-box">{% for line in strat.logs %}<div>{{ line }}</div>{% endfor %}</div>
+"""
+
+HTML_BASE = """
 <!DOCTYPE html>
 <html lang="de" data-bs-theme="dark">
 <head>
@@ -122,6 +216,7 @@ HTML_TEMPLATE = """
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
     <style>
         body { background-color: #0d1117; font-family: 'Segoe UI', monospace; color: #c9d1d9; }
         .navbar { background-color: #161b22; border-bottom: 1px solid #30363d; }
@@ -144,7 +239,7 @@ HTML_TEMPLATE = """
         .sortable-ghost { opacity: 0.4; background-color: #30363d; }
     </style>
 </head>
-<body>
+<body hx-boost="true">
     <nav class="navbar navbar-expand-lg navbar-dark px-4">
         <a class="navbar-brand fw-bold" href="/"><i class="bi bi-robot"></i> PolyBot <span class="text-primary">Pro Edition</span></a>
         <div class="mx-4">
@@ -156,261 +251,295 @@ HTML_TEMPLATE = """
                 <a href="/global_action/toggle_debug" class="btn btn-outline-{{ 'info' if debug_mode else 'secondary' }} btn-sm" title="Debug Modus umschalten"><i class="bi bi-bug"></i> Debug: {{ 'ON' if debug_mode else 'OFF' }}</a>
             </div>
         </div>
-        <div class="ms-auto text-muted small">
-            Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span>
+        <div class="ms-auto text-muted small" hx-get="/poll/navbar" hx-trigger="every 5s" hx-swap="innerHTML">
+            """ + HTML_NAVBAR_STATS + """
         </div>
     </nav>
 
     <div class="container-fluid p-4">
-        {% if view == 'home' %}
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4>Strategie-Übersicht</h4>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newStratModal"><i class="bi bi-plus-lg"></i> Neue Strategie</button>
-        </div>
-        <div class="card">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead>
-                        <tr class="text-muted small text-uppercase">
-                            <th style="width: 30px"></th>
-                            <th>Status</th><th>Name</th><th>Gesamtwert</th><th>Verfügbar</th><th>Offen</th><th>S/N</th><th>Filter</th><th class="text-end">Aktionen</th>
-                        </tr>
-                    </thead>
-                    <tbody id="strategyList">
-                        {% for id, s in strategies.items() %}
-                        <tr data-id="{{ id }}" style="cursor: pointer;" onclick="window.location='/strategy/{{ id }}'">
-                            <td class="drag-handle" onclick="event.stopPropagation();"><i class="bi bi-grip-vertical fs-5"></i></td>
-                            <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
-                            <td class="fw-bold text-white">
-                                <span data-bs-toggle="tooltip" data-bs-html="true" title="
-                                    <div class='text-start'>
-                                        <b>Min Quote:</b> {{ s.min_prob }}<br>
-                                        <b>Max Quote:</b> {{ s.max_prob }}<br>
-                                        <b>Max Zeit:</b> {{ s.max_time_min }}m<br>
-                                        <b>Invest:</b> {{ '%.1f'|format(s.bet_percentage*100) }}%<br>
-                                        <b>Min Liquidität:</b> ${{ s.min_liquidity }}<br>
-                                        <b>Stop Loss:</b> {{ s.stop_loss_trigger }}x
-                                    </div>">
-                                    {{ s.name }}
-                                </span>
-                            </td>
-                            <td class="fw-bold text-primary">${{ "%.2f"|format(s.get_equity()) }}</td>
-                            <td>${{ "%.2f"|format(s.balance) }}</td>
-                            <td>{{ s.active_bets|length }}</td>
-                            <td><span class="text-win">{{ s.wins }}</span>/<span class="text-loss">{{ s.losses }}</span></td>
-                            <td class="small text-muted">{{ s.category_filter if s.category_filter else "ALLE" }}</td>
-                            <td class="text-end" onclick="event.stopPropagation();">
-                                {% if s.is_running %}
-                                <a href="/action/stop/{{ id }}" class="btn btn-outline-danger btn-sm" title="Stoppen"><i class="bi bi-pause-fill"></i></a>
-                                {% else %}
-                                <a href="/action/start/{{ id }}" class="btn btn-outline-success btn-sm" title="Starten"><i class="bi bi-play-fill"></i></a>
-                                {% endif %}
-                                <a href="/action/reset/{{ id }}" class="btn btn-outline-warning btn-sm" onclick="return confirm('Zurücksetzen?')" title="Zurücksetzen"><i class="bi bi-arrow-counterclockwise"></i></a>
-                                <a href="/action/duplicate/{{ id }}" class="btn btn-outline-primary btn-sm" title="Duplizieren"><i class="bi bi-files"></i></a>
-                                <a href="/strategy/{{ id }}#config" class="btn btn-outline-secondary btn-sm" title="Einstellungen"><i class="bi bi-gear"></i></a>
-                                <a href="/action/delete/{{ id }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Löschen?')" title="Löschen"><i class="bi bi-trash"></i></a>
-                            </td>
-                        </tr>
-                        {% else %}<tr><td colspan="9" class="text-center p-5 text-muted">Keine Strategien.</td></tr>{% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        <div class="card mt-4"><div class="card-header">System-Protokolle</div><div class="log-box">{% for line in sys_logs %}<div>{{ line }}</div>{% endfor %}</div></div>
-        
-        <div class="modal fade" id="newStratModal" tabindex="-1">
-            <div class="modal-dialog">
-                <form class="modal-content bg-dark" action="/create_strategy" method="post">
-                    <div class="modal-header border-secondary"><h5 class="modal-title">Neue Strategie</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-                    <div class="modal-body">
-                        <label class="form-label">Name</label><input type="text" class="form-control bg-dark text-white border-secondary" name="name" required>
-                        <label class="form-label mt-2">Startkapital ($)</label><input type="number" class="form-control bg-dark text-white border-secondary" name="balance" value="1000">
-                    </div>
-                    <div class="modal-footer border-secondary"><button type="submit" class="btn btn-primary">Erstellen</button></div>
-                </form>
-            </div>
-        </div>
-
-        {% elif view == 'detail' %}
-        <div class="d-flex align-items-center mb-4">
-            <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
-            <h3 class="m-0">{{ strat.name }} <span class="badge {{ 'bg-success' if strat.is_running else 'bg-danger' }} fs-6 align-middle ms-2">{{ 'LÄUFT' if strat.is_running else 'PAUSIERT' }}</span></h3>
-            <div class="ms-auto d-flex gap-2">
-                <div class="btn-group me-2">
-                    <a href="{{ '/strategy/' + prev_id if prev_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not prev_id else '' }}"><i class="bi bi-chevron-left"></i></a>
-                    <a href="{{ '/strategy/' + next_id if next_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not next_id else '' }}"><i class="bi bi-chevron-right"></i></a>
-                </div>
-                <a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Statistik zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Statistik zurücksetzen</a>
-            </div>
-        </div>
-        <div class="row g-3 mb-4">
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>GESAMTWERT</small><h2 class="text-primary">${{ "%.2f"|format(strat.get_equity()) }}</h2></div></div>
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>VERFÜGBAR</small><h2>${{ "%.2f"|format(strat.balance) }}</h2></div></div>
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>OFFEN</small><h2>{{ strat.active_bets|length }}</h2></div></div>
-            <div class="col-md-3"><div class="card p-3 text-center h-100"><small>GEWINNRATE</small><h2>{{ strat.wins }} S / {{ strat.losses }} N</h2></div></div>
-        </div>
-        <ul class="nav nav-tabs mb-3" id="detailTabs">
-            <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#active_tab">Aktive Wetten</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#history_tab">Historie</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#config_tab">Konfiguration</a></li>
-            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#logs_tab">Protokolle</a></li>
-        </ul>
-        <div class="tab-content">
-            <div class="tab-pane fade show active" id="active_tab">
-                <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
-                    <thead><tr class="text-muted small"><th>Markt</th><th>Wahl</th><th>Invest</th><th>Einstieg</th><th>Live</th><th>Wert</th><th>Zeit</th></tr></thead>
-                    <tbody>
-                        {% for bet in strat.active_bets %}
-                        <tr>
-                            <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;"><a href="https://polymarket.com/event/{{ bet.slug }}" target="_blank" class="text-white text-decoration-underline">{{ bet.title }}</a></td>
-                            <td><span class="badge bg-info text-dark">{{ bet.picked_outcome }}</span></td>
-                            <td>${{ "%.2f"|format(bet.amount) }}</td>
-                            <td>{{ "%.1f"|format(bet.entry_price*100) }}%</td>
-                            <td><span class="{{ 'text-win' if bet.current_price > bet.entry_price else 'text-loss' if bet.current_price < bet.entry_price else 'text-muted' }}">{{ "%.1f"|format(bet.current_price*100) }}%</span></td>
-                            <td>${{ "%.2f"|format((bet.amount/bet.entry_price)*bet.current_price) }}</td>
-                            <td>{{ bet.get('time_str', 'Berechne...') }}</td>
-                        </tr>
-                        {% else %}<tr><td colspan="7" class="text-center p-4 text-muted">Keine Positionen.</td></tr>{% endfor %}
-                    </tbody>
-                </table></div></div>
-            </div>
-            <div class="tab-pane fade" id="history_tab">
-                <div class="card"><div class="table-responsive"><table class="table table-striped table-hover mb-0">
-                    <thead><tr><th>Zeit</th><th>Status</th><th>Markt</th><th>P/L</th></tr></thead>
-                    <tbody>
-                        {% for h in strat.history|reverse %}
-                        <tr>
-                            <td>{{ h.close_time[11:19] }}</td>
-                            <td><span class="badge {{ 'bg-success' if h.status=='WIN' else 'bg-danger' }}">{{ h.status }}</span></td>
-                            <td style="max-width:400px; overflow:hidden; text-overflow:ellipsis;">{% if h.slug %}<a href="https://polymarket.com/event/{{ h.slug }}" target="_blank" class="text-white text-decoration-underline">{{ h.title }}</a>{% else %}{{ h.title }}{% endif %}</td>
-                            <td class="{{ 'text-win' if h.pnl > 0 else 'text-loss' }} fw-bold">{{ "%.2f"|format(h.pnl) }}$</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table></div></div>
-            </div>
-            <div class="tab-pane fade" id="config_tab">
-                <div class="card p-4">
-                    <form action="/update_strategy/{{ strat.id }}" method="post">
-                        <div class="row g-3">
-                            <div class="col-md-6"><label>Name</label><input type="text" class="form-control" name="name" value="{{ strat.name }}"></div>
-                            <div class="col-md-6"><label>Kategorie</label><input type="text" class="form-control" name="category_filter" value="{{ strat.category_filter }}"></div>
-                            <div class="col-md-3"><label>Min Quote</label><input type="number" step="0.001" class="form-control" name="min_prob" value="{{ strat.min_prob }}"></div>
-                            <div class="col-md-3"><label>Max Quote</label><input type="number" step="0.001" class="form-control" name="max_prob" value="{{ strat.max_prob }}"></div>
-                            <div class="col-md-3"><label>Max Zeit (Min)</label><input type="number" class="form-control" name="max_time_min" value="{{ strat.max_time_min }}"></div>
-                            <div class="col-md-3"><label>Invest %</label><input type="number" step="0.001" class="form-control" name="bet_percentage" value="{{ strat.bet_percentage }}"></div>
-                            <div class="col-md-6"><label>Stop Loss (x)</label><input type="number" step="0.001" class="form-control text-danger border-danger" name="stop_loss_trigger" value="{{ strat.stop_loss_trigger }}"><small class="text-muted">0 = Deaktiviert</small></div>
-                            <div class="col-md-6"><label>Min Liq ($)</label><input type="number" class="form-control" name="min_liquidity" value="{{ strat.min_liquidity }}"></div>
-                            <div class="col-12 mt-3"><button type="submit" class="btn btn-primary w-100">Einstellungen Speichern</button></div>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            <div class="tab-pane fade" id="logs_tab"><div class="log-box">{% for line in strat.logs %}<div>{{ line }}</div>{% endfor %}</div></div>
-        </div>
-        {% elif view == 'mass_edit' %}
-        <div class="d-flex align-items-center mb-4">
-            <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
-            <h4>Massenbearbeitung</h4>
-        </div>
-        <div class="card p-4">
-            <form action="/mass_edit_apply" method="post">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Parameter auswählen</label>
-                        <select class="form-select bg-dark text-white border-secondary" name="field">
-                            <option value="category_filter">Kategorie</option>
-                            <option value="min_prob">Min Quote</option>
-                            <option value="max_prob">Max Quote</option>
-                            <option value="max_time_min">Max Zeit (Min)</option>
-                            <option value="bet_percentage">Invest %</option>
-                            <option value="stop_loss_trigger">Stop Loss (x)</option>
-                            <option value="min_liquidity">Min Liquidität ($)</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Neuer Wert</label>
-                        <input type="text" class="form-control bg-dark text-white border-secondary" name="value" placeholder="Wert eingeben..." required>
-                    </div>
-                </div>
-
-                <h5 class="mt-4 mb-3">Strategien auswählen</h5>
-                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                    <table class="table table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px"><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.strat-check').forEach(c => c.checked = this.checked)"></th>
-                                <th>Name</th>
-                                <th>Status</th>
-                                <th>Aktueller Wert</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for id, s in strategies.items() %}
-                            <tr>
-                                <td><input type="checkbox" class="form-check-input strat-check" name="strategy_ids" value="{{ id }}"></td>
-                                <td>{{ s.name }}</td>
-                                <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
-                                <td class="text-muted small">
-                                    MinQ: {{ s.min_prob }} | MaxQ: {{ s.max_prob }} | Kat: {{ s.category_filter }}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="mt-4 border-top border-secondary pt-3">
-                    <button type="submit" class="btn btn-primary" onclick="return confirm('Sicher? Diese Änderung betrifft alle ausgewählten Strategien.')">Änderungen anwenden</button>
-                </div>
-            </form>
-        </div>
-        {% endif %}
+        {{ content|safe }}
     </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        document.addEventListener("DOMContentLoaded", function(){
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-              return new bootstrap.Tooltip(tooltipTriggerEl)
-            })
-            var hash = window.location.hash;
-            if(hash) { var tid = hash + "_tab"; var trig = document.querySelector(`a[href="${tid}"]`); if(trig) new bootstrap.Tab(trig).show(); } 
-            else { var at = localStorage.getItem('activeTab_v28'); if(at) { var t = document.querySelector(`a[href="${at}"]`); if(t) new bootstrap.Tab(t).show(); } }
-            document.querySelectorAll('a[data-bs-toggle="tab"]').forEach(l => l.addEventListener('shown.bs.tab', e => { var t = e.target.getAttribute('href'); localStorage.setItem('activeTab_v28', t); history.replaceState(null,null, t.replace("_tab","")); }));
+        function initSortable() {
             var el = document.getElementById('strategyList');
-            if(el){ new Sortable(el, { handle: '.drag-handle', animation: 150, ghostClass: 'sortable-ghost', onEnd: function (evt) { var order = []; document.querySelectorAll('#strategyList tr').forEach(tr => order.push(tr.getAttribute('data-id'))); fetch('/reorder_strategies', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({order: order}) }); } }); }
-            setInterval(function() { if (!document.getElementById('detailTabs')) { if(!document.querySelector('.modal.show')) window.location.reload(); return; } var cfg = document.getElementById('config_tab'); if (cfg && cfg.classList.contains('active')) return; window.location.reload(); }, 10000);
+            if(el){
+                if(el.sortable) el.sortable.destroy();
+                el.sortable = new Sortable(el, {
+                    handle: '.drag-handle',
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    onEnd: function (evt) {
+                        var order = [];
+                        document.querySelectorAll('#strategyList tr').forEach(tr => order.push(tr.getAttribute('data-id')));
+                        fetch('/reorder_strategies', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({order: order}) });
+                    }
+                });
+            }
+        }
+
+        function initTooltips() {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+              return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        }
+
+        // Tab Persistence Logic
+        function initTabs() {
+            var hash = window.location.hash;
+            if(hash) {
+                var tid = hash + "_tab";
+                var trig = document.querySelector(`a[href="${tid}"]`);
+                if(trig) new bootstrap.Tab(trig).show();
+            } else {
+                var at = localStorage.getItem('activeTab_v28');
+                if(at) {
+                    var t = document.querySelector(`a[href="${at}"]`);
+                    if(t) new bootstrap.Tab(t).show();
+                }
+            }
+            document.querySelectorAll('a[data-bs-toggle="tab"]').forEach(l => l.addEventListener('shown.bs.tab', e => {
+                var t = e.target.getAttribute('href');
+                localStorage.setItem('activeTab_v28', t);
+                history.replaceState(null,null, t.replace("_tab",""));
+            }));
+        }
+
+        document.addEventListener("DOMContentLoaded", function(){
+            initSortable();
+            initTooltips();
+            initTabs();
+        });
+
+        // HTMX Hooks
+        document.addEventListener("htmx:afterSwap", function(evt) {
+            initTooltips();
+            // Re-init Sortable only if we swapped the strategy list
+            if (evt.target.id === 'strategyList') {
+                initSortable();
+            }
         });
     </script>
 </body>
 </html>
 """
 
+HTML_HOME_CONTENT = """
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4>Strategie-Übersicht</h4>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newStratModal"><i class="bi bi-plus-lg"></i> Neue Strategie</button>
+</div>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr class="text-muted small text-uppercase">
+                    <th style="width: 30px"></th>
+                    <th>Status</th><th>Name</th><th>Gesamtwert</th><th>Verfügbar</th><th>Offen</th><th>S/N</th><th>Filter</th><th class="text-end">Aktionen</th>
+                </tr>
+            </thead>
+            <tbody id="strategyList" hx-get="/poll/strategies" hx-trigger="every 2s" hx-swap="innerHTML">
+                """ + HTML_STRATEGIES_ROWS + """
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="card mt-4"><div class="card-header">System-Protokolle</div>
+    <div class="log-box" hx-get="/poll/logs" hx-trigger="every 2s" hx-swap="innerHTML">
+        """ + HTML_LOGS_ROWS + """
+    </div>
+</div>
+
+<div class="modal fade" id="newStratModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form class="modal-content bg-dark" action="/create_strategy" method="post">
+            <div class="modal-header border-secondary"><h5 class="modal-title">Neue Strategie</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <label class="form-label">Name</label><input type="text" class="form-control bg-dark text-white border-secondary" name="name" required>
+                <label class="form-label mt-2">Startkapital ($)</label><input type="number" class="form-control bg-dark text-white border-secondary" name="balance" value="1000">
+            </div>
+            <div class="modal-footer border-secondary"><button type="submit" class="btn btn-primary">Erstellen</button></div>
+        </form>
+    </div>
+</div>
+"""
+
+HTML_DETAIL_WRAPPER = """
+<div class="d-flex align-items-center mb-4">
+    <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
+    <h3 class="m-0">{{ strat.name }} <span class="badge {{ 'bg-success' if strat.is_running else 'bg-danger' }} fs-6 align-middle ms-2">{{ 'LÄUFT' if strat.is_running else 'PAUSIERT' }}</span></h3>
+    <div class="ms-auto d-flex gap-2">
+        <div class="btn-group me-2">
+            <a href="{{ '/strategy/' + prev_id if prev_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not prev_id else '' }}"><i class="bi bi-chevron-left"></i></a>
+            <a href="{{ '/strategy/' + next_id if next_id else '#' }}" class="btn btn-outline-secondary {{ 'disabled' if not next_id else '' }}"><i class="bi bi-chevron-right"></i></a>
+        </div>
+        <a href="/action/reset/{{ strat.id }}" class="btn btn-outline-warning" onclick="return confirm('Statistik zurücksetzen?')"><i class="bi bi-arrow-counterclockwise"></i> Statistik zurücksetzen</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-4" hx-get="/poll/strategy_stats/{{ strat.id }}" hx-trigger="every 2s" hx-swap="innerHTML">
+    """ + HTML_DETAIL_STATS + """
+</div>
+
+<ul class="nav nav-tabs mb-3" id="detailTabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#active_tab">Aktive Wetten</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#history_tab">Historie</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#config_tab">Konfiguration</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#logs_tab">Protokolle</a></li>
+</ul>
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="active_tab">
+        <div class="card" hx-get="/poll/strategy_active/{{ strat.id }}" hx-trigger="every 2s" hx-swap="innerHTML">
+             """ + HTML_DETAIL_ACTIVE_BETS + """
+        </div>
+    </div>
+    <div class="tab-pane fade" id="history_tab">
+        <div class="card" hx-get="/poll/strategy_history/{{ strat.id }}" hx-trigger="every 5s" hx-swap="innerHTML">
+            """ + HTML_DETAIL_HISTORY + """
+        </div>
+    </div>
+    <div class="tab-pane fade" id="config_tab">
+        <div class="card p-4">
+            <form action="/update_strategy/{{ strat.id }}" method="post">
+                <div class="row g-3">
+                    <div class="col-md-6"><label>Name</label><input type="text" class="form-control" name="name" value="{{ strat.name }}"></div>
+                    <div class="col-md-6"><label>Kategorie</label><input type="text" class="form-control" name="category_filter" value="{{ strat.category_filter }}"></div>
+                    <div class="col-md-3"><label>Min Quote</label><input type="number" step="0.001" class="form-control" name="min_prob" value="{{ strat.min_prob }}"></div>
+                    <div class="col-md-3"><label>Max Quote</label><input type="number" step="0.001" class="form-control" name="max_prob" value="{{ strat.max_prob }}"></div>
+                    <div class="col-md-3"><label>Max Zeit (Min)</label><input type="number" class="form-control" name="max_time_min" value="{{ strat.max_time_min }}"></div>
+                    <div class="col-md-3"><label>Invest %</label><input type="number" step="0.001" class="form-control" name="bet_percentage" value="{{ strat.bet_percentage }}"></div>
+                    <div class="col-md-6"><label>Stop Loss (x)</label><input type="number" step="0.001" class="form-control text-danger border-danger" name="stop_loss_trigger" value="{{ strat.stop_loss_trigger }}"><small class="text-muted">0 = Deaktiviert</small></div>
+                    <div class="col-md-6"><label>Min Liq ($)</label><input type="number" class="form-control" name="min_liquidity" value="{{ strat.min_liquidity }}"></div>
+                    <div class="col-12 mt-3"><button type="submit" class="btn btn-primary w-100">Einstellungen Speichern</button></div>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="tab-pane fade" id="logs_tab">
+        <div hx-get="/poll/strategy_logs/{{ strat.id }}" hx-trigger="every 2s" hx-swap="innerHTML">
+            """ + HTML_DETAIL_LOGS + """
+        </div>
+    </div>
+</div>
+"""
+
+HTML_MASS_EDIT = """
+<div class="d-flex align-items-center mb-4">
+    <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
+    <h4>Massenbearbeitung</h4>
+</div>
+<div class="card p-4">
+    <form action="/mass_edit_apply" method="post">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Parameter auswählen</label>
+                <select class="form-select bg-dark text-white border-secondary" name="field">
+                    <option value="category_filter">Kategorie</option>
+                    <option value="min_prob">Min Quote</option>
+                    <option value="max_prob">Max Quote</option>
+                    <option value="max_time_min">Max Zeit (Min)</option>
+                    <option value="bet_percentage">Invest %</option>
+                    <option value="stop_loss_trigger">Stop Loss (x)</option>
+                    <option value="min_liquidity">Min Liquidität ($)</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Neuer Wert</label>
+                <input type="text" class="form-control bg-dark text-white border-secondary" name="value" placeholder="Wert eingeben..." required>
+            </div>
+        </div>
+
+        <h5 class="mt-4 mb-3">Strategien auswählen</h5>
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 40px"><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.strat-check').forEach(c => c.checked = this.checked)"></th>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Aktueller Wert</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for id, s in strategies.items() %}
+                    <tr>
+                        <td><input type="checkbox" class="form-check-input strat-check" name="strategy_ids" value="{{ id }}"></td>
+                        <td>{{ s.name }}</td>
+                        <td><span class="status-dot {{ 'running' if s.is_running else 'stopped' }}"></span></td>
+                        <td class="text-muted small">
+                            MinQ: {{ s.min_prob }} | MaxQ: {{ s.max_prob }} | Kat: {{ s.category_filter }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-4 border-top border-secondary pt-3">
+            <button type="submit" class="btn btn-primary" onclick="return confirm('Sicher? Diese Änderung betrifft alle ausgewählten Strategien.')">Änderungen anwenden</button>
+        </div>
+    </form>
+</div>
+"""
+
 # --- ROUTES ---
 @app.route("/")
-def home(): return render_template_string(HTML_TEMPLATE, view='home', strategies=strategies, sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"))
+def home():
+    content = render_template_string(HTML_HOME_CONTENT, strategies=strategies, sys_logs=log_buffer)
+    return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")))
+
+@app.route("/poll/navbar")
+def poll_navbar():
+    return render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"))
+
+@app.route("/poll/strategies")
+def poll_strategies():
+    return render_template_string(HTML_STRATEGIES_ROWS, strategies=strategies)
+
+@app.route("/poll/logs")
+def poll_logs():
+    return render_template_string(HTML_LOGS_ROWS, sys_logs=log_buffer)
+
 @app.route("/strategy/<id>")
 def strategy_detail(id):
     if id not in strategies: return redirect("/")
-
-    # Navigation Logic
     keys = list(strategies.keys())
     idx = keys.index(id)
     prev_id = keys[idx-1] if idx > 0 else None
     next_id = keys[idx+1] if idx < len(keys)-1 else None
 
-    return render_template_string(HTML_TEMPLATE, view='detail', strat=strategies.get(id),
-                                  prev_id=prev_id, next_id=next_id,
-                                  sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'],
-                                  debug_mode=GLOBAL_CONFIG.get('debug', False),
-                                  last_update=datetime.now().strftime("%H:%M:%S"))
+    content = render_template_string(HTML_DETAIL_WRAPPER, strat=strategies.get(id), prev_id=prev_id, next_id=next_id)
+    return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")))
+
+@app.route("/poll/strategy_stats/<id>")
+def poll_strategy_stats(id):
+    if id not in strategies: return ""
+    return render_template_string(HTML_DETAIL_STATS, strat=strategies[id])
+
+@app.route("/poll/strategy_active/<id>")
+def poll_strategy_active(id):
+    if id not in strategies: return ""
+    return render_template_string(HTML_DETAIL_ACTIVE_BETS, strat=strategies[id])
+
+@app.route("/poll/strategy_history/<id>")
+def poll_strategy_history(id):
+    if id not in strategies: return ""
+    return render_template_string(HTML_DETAIL_HISTORY, strat=strategies[id])
+
+@app.route("/poll/strategy_logs/<id>")
+def poll_strategy_logs(id):
+    if id not in strategies: return ""
+    return render_template_string(HTML_DETAIL_LOGS, strat=strategies[id])
+
 @app.route("/create_strategy", methods=["POST"])
 def create_strategy():
     s = Strategy(); s.name = request.form.get("name")
     try: s.balance = s.initial_balance = float(request.form.get("balance"))
     except: pass
     strategies[s.id] = s; save_data(); return redirect("/")
+
 @app.route("/update_strategy/<id>", methods=["POST"])
 def update_strategy(id):
     if id in strategies:
@@ -427,50 +556,35 @@ def update_strategy(id):
             save_data()
         except: pass
     return redirect(f"/strategy/{id}#config")
+
 @app.route("/action/duplicate/<id>")
 def duplicate_strategy(id):
     global strategies
     if id in strategies:
         source = strategies[id]
-
-        # Daten kopieren
         data = source.to_dict().copy()
-
-        # Neue ID
         new_id = str(uuid.uuid4())[:8]
         data["id"] = new_id
-
-        # Name anpassen (nur einmal "(Kopie)")
-        if not data["name"].endswith(" (Kopie)"):
-            data["name"] = data["name"] + " (Kopie)"
-
-        # Status zurücksetzen
+        if not data["name"].endswith(" (Kopie)"): data["name"] = data["name"] + " (Kopie)"
         data["is_running"] = False
         data["active_bets"] = []
         data["history"] = []
         data["wins"] = 0
         data["losses"] = 0
         data["logs"] = []
-
-        # Balance auf Initialwert zurücksetzen
         initial = data.get("initial_balance", 1000.0)
         data["balance"] = initial
         data["initial_balance"] = initial
-
         new_strat = Strategy(data)
         new_strat.log(f"Kopie von '{source.name}' erstellt.")
-
-        # Einsortieren (direkt unter der Quelle)
         new_strategies = {}
         for key, val in strategies.items():
             new_strategies[key] = val
-            if key == id:
-                new_strategies[new_id] = new_strat
-
+            if key == id: new_strategies[new_id] = new_strat
         strategies = new_strategies
         save_data()
-
     return redirect("/")
+
 @app.route("/reorder_strategies", methods=["POST"])
 def reorder_strategies():
     global strategies; order = request.json.get('order', [])
@@ -478,6 +592,7 @@ def reorder_strategies():
     for uid, s in strategies.items():
         if uid not in new_map: new_map[uid] = s
     strategies = new_map; save_data(); return jsonify({"status":"ok"})
+
 @app.route("/action/<action>/<id>")
 def action(action, id):
     if id in strategies:
@@ -487,13 +602,13 @@ def action(action, id):
         elif action == "reset": strategies[id].reset_stats()
         save_data()
     return redirect("/")
+
 @app.route("/global_action/<action>")
 def global_action(action):
     if action == "toggle_debug":
         GLOBAL_CONFIG["debug"] = not GLOBAL_CONFIG.get("debug", False)
         sys_log(f"Debug Modus {'aktiviert' if GLOBAL_CONFIG['debug'] else 'deaktiviert'}.")
         return redirect(request.referrer or "/")
-
     for s in list(strategies.values()):
         if action == "start_all": s.is_running = True
         elif action == "stop_all": s.is_running = False
@@ -502,19 +617,15 @@ def global_action(action):
 
 @app.route("/mass_edit")
 def mass_edit():
-    return render_template_string(HTML_TEMPLATE, view='mass_edit', strategies=strategies,
-                                  sys_logs=log_buffer, global_limit=GLOBAL_CONFIG['api_fetch_limit'],
-                                  debug_mode=GLOBAL_CONFIG.get('debug', False),
-                                  last_update=datetime.now().strftime("%H:%M:%S"))
+    content = render_template_string(HTML_MASS_EDIT, strategies=strategies)
+    return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")))
 
 @app.route("/mass_edit_apply", methods=["POST"])
 def mass_edit_apply():
     field = request.form.get("field")
     value = request.form.get("value")
     ids = request.form.getlist("strategy_ids")
-
     if not ids: return redirect("/mass_edit")
-
     count = 0
     for id in ids:
         if id in strategies:
@@ -530,11 +641,9 @@ def mass_edit_apply():
                     setattr(s, field, str(value).strip())
                 count += 1
             except: pass
-
     if count > 0:
         save_data()
         sys_log(f"Massenänderung: {field} = {value} für {count} Strategien.")
-
     return redirect("/")
 
 # --- OPTIMIERTE ENGINE ---
@@ -551,13 +660,13 @@ class Engine:
         offsets = range(0, limit, batch)
         url = "https://gamma-api.polymarket.com/markets"
         now = datetime.now(timezone.utc).isoformat()
-        
+
         def load_batch(o):
             try:
                 # Nutzt die Session
                 r = self.session.get(url, params={
-                    "active": "true", "closed": "false", "order": "endDate", 
-                    "ascending": "true", "end_date_min": now, 
+                    "active": "true", "closed": "false", "order": "endDate",
+                    "ascending": "true", "end_date_min": now,
                     "limit": str(batch), "offset": str(o)
                 }, timeout=10)
                 if r.status_code == 200: return r.json()
@@ -581,7 +690,7 @@ class Engine:
         """Hilfsfunktion für paralleles Update einer einzelnen Wette"""
         try:
             r = self.session.get(f"https://gamma-api.polymarket.com/markets/{bet['market_id']}", timeout=5)
-            
+
             # --- START: ERROR / GHOST BET HANDLING ---
             if r.status_code != 200:
                 bet['fail_count'] = bet.get('fail_count', 0) + 1
@@ -597,11 +706,11 @@ class Engine:
 
             m = r.json()
             strat = strategies.get(s_id)
-            if not strat: return bet, False 
-            
+            if not strat: return bet, False
+
             dirty = False
             bet['fail_count'] = 0 # Reset Fail Count bei Erfolg
-            
+
             # Update Data
             try:
                 outcomes = json.loads(m.get("outcomes", "[]"))
@@ -609,11 +718,11 @@ class Engine:
                 if bet["picked_outcome"] in outcomes:
                     idx = outcomes.index(bet["picked_outcome"])
                     bet["current_price"] = prices[idx]
-                
+
                 end = datetime.fromisoformat(m["endDate"].replace('Z', '+00:00'))
                 seconds_left = int((end - now).total_seconds())
                 bet["minutes_left"] = seconds_left // 60
-                
+
                 if seconds_left <= 0: bet["time_str"] = "Warte..."
                 elif seconds_left > 3600: bet["time_str"] = f"{seconds_left // 3600}h {(seconds_left % 3600) // 60}m"
                 else: bet["time_str"] = f"{seconds_left // 60}m {seconds_left % 60}s"
@@ -627,10 +736,10 @@ class Engine:
                 loss = bet["amount"] - revenue
                 strat.balance += revenue
                 strat.losses += 1
-                
+
                 # DETAILED LOG
                 strat.log(f"🛑 STOP-LOSS: {bet['title']} | Exit @ {bet['current_price']:.2f} | PnL: -${loss:.2f}")
-                
+
                 strat.history.append({"status":"STOP-LOSS", "title":bet["title"], "slug": bet.get("slug", ""), "pnl":-loss, "close_time": datetime.now().isoformat()})
                 return None, True
 
@@ -642,7 +751,7 @@ class Engine:
                 strat.balance += revenue
                 if won: strat.wins += 1
                 else: strat.losses += 1
-                
+
                 # DETAILED LOG
                 roi = ((revenue - bet["amount"]) / bet["amount"]) * 100
                 if won:
@@ -653,7 +762,7 @@ class Engine:
                 strat.history.append({"status":"WIN" if won else "LOSS", "title":bet["title"], "slug": bet.get("slug", ""), "pnl":profit, "close_time": datetime.now().isoformat()})
                 return None, True
 
-            return bet, False 
+            return bet, False
         except Exception as e:
             # Auch bei Exception den Fail Count hochzählen
             bet['fail_count'] = bet.get('fail_count', 0) + 1
@@ -669,13 +778,13 @@ class Engine:
         # OPTIMIERUNG 2: Paralleles Update der aktiven Wetten
         tasks = []
         now = datetime.now(timezone.utc)
-        
+
         # Sammle alle Tasks
         for s_id, strat in list(strategies.items()):
             if not strat.active_bets: continue
             for bet in strat.active_bets:
                 tasks.append((s_id, bet))
-        
+
         if not tasks: return
 
         # Ausführen
@@ -684,7 +793,7 @@ class Engine:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(self.update_single_bet, s_id, bet, now): s_id for s_id, bet in tasks}
-            
+
             for f in concurrent.futures.as_completed(futures):
                 s_id = futures[f]
                 try:
@@ -700,12 +809,12 @@ class Engine:
                 if len(strategies[s_id].active_bets) != len(bets) or dirty_flags[s_id]:
                     strategies[s_id].active_bets = bets
                     save_needed = True
-        
+
         if save_needed: save_data()
 
     def process_strategies(self, raw_markets):
         now = datetime.now(timezone.utc)
-        
+
         # OPTIMIERUNG 3: Pre-Processing der Märkte (JSON Parsing nur 1x pro Loop)
         processed_markets = []
         for m in raw_markets:
@@ -713,15 +822,15 @@ class Engine:
                 # Extrahiere Daten einmalig
                 outcomes = json.loads(m.get("outcomes", "[]"))
                 prices = [float(p) for p in json.loads(m.get("outcomePrices", "[]"))]
-                
+
                 best_price, best_outcome = 0, None
                 for i, p in enumerate(prices):
                     if p > best_price: best_price, best_outcome = p, outcomes[i]
-                
+
                 end = datetime.fromisoformat(m["endDate"].replace('Z', '+00:00'))
                 seconds_left = int((end - now).total_seconds())
                 minutes_left = seconds_left // 60
-                
+
                 processed_markets.append({
                     "raw": m, # Referenz aufs Original für ID, Title etc.
                     "tags": str(m.get("tags", [])).lower(),
@@ -738,7 +847,7 @@ class Engine:
         save_needed = False
         for s_id, strat in list(strategies.items()):
             if not strat.is_running: continue
-            
+
             # Budget Check
             bet_amount = strat.balance * strat.bet_percentage
             if bet_amount < 1.0: continue
@@ -749,20 +858,20 @@ class Engine:
             for pm in processed_markets:
                 m = pm["raw"]
                 if m['id'] in active_ids: continue
-                
+
                 # Checks auf vorverarbeiteten Daten (Viel schneller!)
                 if strat.category_filter and strat.category_filter.lower() not in pm["tags"]: continue
                 if pm["spread"] > strat.max_spread: continue
                 if pm["liquidity"] < strat.min_liquidity: continue
                 if pm["minutes_left"] <= 0 or pm["minutes_left"] > strat.max_time_min: continue
-                
+
                 if strat.min_prob <= pm["best_price"] <= strat.max_prob:
                     # KAUF SIGNAL
                     strat.balance -= bet_amount
-                    
+
                     # DETAILED LOG
                     strat.log(f"🚀 KAUF: {m['question']} | ${bet_amount:.2f} auf {pm['best_outcome']} @ {pm['best_price']:.2f}")
-                    
+
                     if pm["seconds_left"] > 3600: t_str = f"{pm['seconds_left'] // 3600}h {(pm['seconds_left'] % 3600) // 60}m"
                     else: t_str = f"{pm['seconds_left'] // 60}m {pm['seconds_left'] % 60}s"
 
@@ -780,7 +889,7 @@ class Engine:
                     })
                     active_ids.add(m['id']) # Verhindert doppelkauf im gleichen Loop
                     save_needed = True
-        
+
         if save_needed: save_data()
 
     def run(self):
@@ -791,22 +900,22 @@ class Engine:
         while True:
             try:
                 start_time = time.time()
-                
+
                 # 1. Update Active Bets (Parallel)
                 self.update_active_bets()
-                
+
                 # 2. Fetch Markets (Parallel + Session)
                 markets = self.fetch_markets()
-                
+
                 # 3. Process (Pre-Compiled)
                 self.process_strategies(markets)
-                
+
                 duration = time.time() - start_time
                 sys_log(f"Scan fertig: {len(markets)} Märkte verarbeitet ({duration:.2f}s).")
 
                 if GLOBAL_CONFIG.get("debug") and len(markets) < GLOBAL_CONFIG["api_fetch_limit"]:
                     sys_log(f"⚠️ DEBUG: Ziel verfehlt! {len(markets)}/{GLOBAL_CONFIG['api_fetch_limit']} Märkte. Mögliche API-Limits oder Timeouts.")
-                
+
             except Exception as e:
                 sys_log(f"Fehler im Loop: {e}")
             time.sleep(GLOBAL_CONFIG["check_interval"])
