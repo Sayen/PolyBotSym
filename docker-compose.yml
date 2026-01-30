@@ -11,3 +11,4 @@ services:
     restart: unless-stopped
     environment:
       - IS_DOCKER=true
+      - TZ=Europe/Zurich
