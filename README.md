@@ -38,6 +38,7 @@
 * **Real-Time Logs:** See exactly why a trade was taken (or rejected) with detailed ROI stats.
 * **Live Metrics:** Monitor Virtual Equity, Cash, Open Positions, and Win/Loss Ratios.
 * **Dark Mode UI:** Built with Bootstrap 5 for a clean, responsive dark-themed interface.
+* **Auto-Update:** Checks for updates on GitHub and allows one-click upgrading via the UI.
 
 ---
 
@@ -77,6 +78,14 @@ The `docker-compose.yml` mounts the current directory to `/app` inside the conta
 
 ### ⚙️ Configuration
 You can configure and tune strategies directly via the Web UI. Simulation data is saved locally to polybot_data.json.
+
+### 🔄 Auto-Update Feature
+The bot includes a built-in update mechanism:
+* **Detection:** On startup and via the UI, it checks the GitHub repository for a newer version of `polybot.py`.
+* **Hash Check:** Updates are only flagged if the file content (SHA256 Hash) has actually changed.
+* **One-Click Update:** You can update directly from the Web Interface (Navbar Cloud Icon).
+* **Automatic Restart:** The server automatically restarts after applying the update.
+* **Note:** This feature overwrites your local `polybot.py` file with the version from the `main` branch.
 
 #### Global Settings (Code Level)
 Performance settings can be adjusted in polybot.py:
