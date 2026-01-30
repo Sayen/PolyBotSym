@@ -989,7 +989,7 @@ class Engine:
             if not strat.is_running: continue
 
             # Budget Check
-            bet_amount = strat.balance * strat.bet_percentage
+            bet_amount = strat.get_equity() * strat.bet_percentage
             if bet_amount < 1.0: continue
 
             # IDs der aktiven Wetten cachen für schnellen Lookup
@@ -1006,6 +1006,10 @@ class Engine:
                 if pm["minutes_left"] <= 0 or pm["minutes_left"] > strat.max_time_min: continue
 
                 if strat.min_prob <= pm["best_price"] <= strat.max_prob:
+                    # Check funds
+                    if strat.balance < bet_amount:
+                        break
+
                     # KAUF SIGNAL
                     strat.balance -= bet_amount
 
