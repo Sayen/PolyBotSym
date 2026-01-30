@@ -191,6 +191,7 @@ HTML_TEMPLATE = """
                                 <a href="/action/start/{{ id }}" class="btn btn-outline-success btn-sm" title="Starten"><i class="bi bi-play-fill"></i></a>
                                 {% endif %}
                                 <a href="/action/reset/{{ id }}" class="btn btn-outline-warning btn-sm" onclick="return confirm('Reset?')" title="Reset"><i class="bi bi-arrow-counterclockwise"></i></a>
+                                <a href="/action/duplicate/{{ id }}" class="btn btn-outline-primary btn-sm" title="Duplizieren"><i class="bi bi-files"></i></a>
                                 <a href="/strategy/{{ id }}#config" class="btn btn-outline-secondary btn-sm" title="Settings"><i class="bi bi-gear"></i></a>
                                 <a href="/action/delete/{{ id }}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Löschen?')" title="Löschen"><i class="bi bi-trash"></i></a>
                             </td>
@@ -331,6 +332,50 @@ def update_strategy(id):
             save_data()
         except: pass
     return redirect(f"/strategy/{id}#config")
+@app.route("/action/duplicate/<id>")
+def duplicate_strategy(id):
+    global strategies
+    if id in strategies:
+        source = strategies[id]
+
+        # Daten kopieren
+        data = source.to_dict().copy()
+
+        # Neue ID
+        new_id = str(uuid.uuid4())[:8]
+        data["id"] = new_id
+
+        # Name anpassen (nur einmal "(Kopie)")
+        if not data["name"].endswith(" (Kopie)"):
+            data["name"] = data["name"] + " (Kopie)"
+
+        # Status zurücksetzen
+        data["is_running"] = False
+        data["active_bets"] = []
+        data["history"] = []
+        data["wins"] = 0
+        data["losses"] = 0
+        data["logs"] = []
+
+        # Balance auf Initialwert zurücksetzen
+        initial = data.get("initial_balance", 1000.0)
+        data["balance"] = initial
+        data["initial_balance"] = initial
+
+        new_strat = Strategy(data)
+        new_strat.log(f"Kopie von '{source.name}' erstellt.")
+
+        # Einsortieren (direkt unter der Quelle)
+        new_strategies = {}
+        for key, val in strategies.items():
+            new_strategies[key] = val
+            if key == id:
+                new_strategies[new_id] = new_strat
+
+        strategies = new_strategies
+        save_data()
+
+    return redirect("/")
 @app.route("/reorder_strategies", methods=["POST"])
 def reorder_strategies():
     global strategies; order = request.json.get('order', [])
