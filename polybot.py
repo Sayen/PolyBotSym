@@ -14,6 +14,7 @@ from flask import Flask, render_template_string, request, redirect, url_for, jso
 
 # --- KONFIGURATION ---
 DATA_FILE = "polybot_data.json"
+CONFIG_FILE = "polybot_config.json"
 REMOTE_URL = "https://raw.githubusercontent.com/Sayen/PolyBotSym/refs/heads/main/polybot.py"
 
 # Globale Server-Einstellungen
@@ -23,6 +24,20 @@ GLOBAL_CONFIG = {
     "check_interval": 30,
     "debug": False
 }
+
+# Standardwerte für neue Strategien
+DEFAULT_STRATEGY_CONFIG = {
+    "balance": 1000.0,
+    "min_prob": 0.90,
+    "max_prob": 0.98,
+    "max_time_min": 30,
+    "min_liquidity": 5000.0,
+    "max_spread": 0.05,
+    "stop_loss_trigger": 0.75,
+    "bet_percentage": 0.05,
+    "category_filter": ""
+}
+
 UPDATE_AVAILABLE = False
 
 # --- LOGGING ---
@@ -32,6 +47,35 @@ def sys_log(msg):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[SYSTEM] {msg}")
     log_buffer.appendleft(f"[{ts}] {msg}")
+
+# --- CONFIG MANAGEMENT ---
+def save_config():
+    try:
+        data = {
+            "global": GLOBAL_CONFIG,
+            "strategy_defaults": DEFAULT_STRATEGY_CONFIG
+        }
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+        sys_log("Konfiguration gespeichert.")
+    except Exception as e:
+        sys_log(f"Fehler beim Speichern der Konfiguration: {e}")
+
+def load_config():
+    global GLOBAL_CONFIG, DEFAULT_STRATEGY_CONFIG
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                data = json.load(f)
+                if "global" in data:
+                    GLOBAL_CONFIG.update(data["global"])
+                if "strategy_defaults" in data:
+                    DEFAULT_STRATEGY_CONFIG.update(data["strategy_defaults"])
+            sys_log("Konfiguration geladen.")
+        except Exception as e:
+            sys_log(f"Fehler beim Laden der Konfiguration: {e}")
+    else:
+        save_config()
 
 # --- UPDATE LOGIC ---
 def get_file_hash(content):
@@ -90,17 +134,20 @@ class Strategy:
             self.id = str(uuid.uuid4())[:8]
             self.name = "Neue Strategie"
             self.is_running = False
-            self.balance = 1000.0
-            self.initial_balance = 1000.0
 
-            self.category_filter = ""
-            self.min_prob = 0.90
-            self.max_prob = 0.98
-            self.max_time_min = 30
-            self.min_liquidity = 5000.0
-            self.max_spread = 0.05
-            self.stop_loss_trigger = 0.75
-            self.bet_percentage = 0.05
+            # Load defaults
+            defaults = DEFAULT_STRATEGY_CONFIG
+            self.balance = defaults.get("balance", 1000.0)
+            self.initial_balance = self.balance
+
+            self.category_filter = defaults.get("category_filter", "")
+            self.min_prob = defaults.get("min_prob", 0.90)
+            self.max_prob = defaults.get("max_prob", 0.98)
+            self.max_time_min = defaults.get("max_time_min", 30)
+            self.min_liquidity = defaults.get("min_liquidity", 5000.0)
+            self.max_spread = defaults.get("max_spread", 0.05)
+            self.stop_loss_trigger = defaults.get("stop_loss_trigger", 0.75)
+            self.bet_percentage = defaults.get("bet_percentage", 0.05)
 
             self.active_bets = []
             self.history = []
@@ -169,6 +216,9 @@ HTML_NAVBAR_STATS = """
 Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span> |
 <a href="#" hx-get="/check_update" hx-target="#updateModalBody" data-bs-toggle="modal" data-bs-target="#updateModal" class="text-decoration-none ms-2">
     <i class="bi bi-cloud-arrow-down-fill fs-2 align-middle {{ 'text-warning' if update_available else 'text-secondary' }}" data-bs-toggle="tooltip" title="Updates prüfen"></i>
+</a>
+<a href="/settings" class="text-decoration-none ms-2">
+    <i class="bi bi-gear-fill fs-2 align-middle text-secondary" data-bs-toggle="tooltip" title="Einstellungen"></i>
 </a>
 """
 
@@ -447,7 +497,7 @@ HTML_HOME_CONTENT = """
             <div class="modal-header border-secondary"><h5 class="modal-title">Neue Strategie</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <label class="form-label">Name</label><input type="text" class="form-control bg-dark text-white border-secondary" name="name" required>
-                <label class="form-label mt-2">Startkapital ($)</label><input type="number" class="form-control bg-dark text-white border-secondary" name="balance" value="1000">
+                <label class="form-label mt-2">Startkapital ($)</label><input type="number" class="form-control bg-dark text-white border-secondary" name="balance" value="{{ default_strategy.balance }}">
             </div>
             <div class="modal-footer border-secondary"><button type="submit" class="btn btn-primary">Erstellen</button></div>
         </form>
@@ -573,10 +623,94 @@ HTML_MASS_EDIT = """
 </div>
 """
 
+HTML_SETTINGS = """
+<div class="d-flex align-items-center mb-4">
+    <a href="/" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i> Zurück</a>
+    <h4>Einstellungen</h4>
+</div>
+
+<form action="/settings/save" method="post">
+    <div class="row">
+        <!-- Globale Einstellungen -->
+        <div class="col-md-12 mb-4">
+            <div class="card p-4">
+                <h5 class="mb-3 text-primary"><i class="bi bi-hdd-network"></i> Allgemeine Server-Einstellungen</h5>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Scan Intervall (Sekunden)</label>
+                        <input type="number" class="form-control bg-dark text-white border-secondary" name="check_interval" value="{{ global_config.check_interval }}" required>
+                        <div class="form-text text-muted">Wie oft nach neuen Märkten gesucht wird.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Anzahl Märkte (Scan Limit)</label>
+                        <input type="number" class="form-control bg-dark text-white border-secondary" name="api_fetch_limit" value="{{ global_config.api_fetch_limit }}" required>
+                        <div class="form-text text-muted">Maximale Anzahl zu ladender Märkte.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Standardwerte für neue Strategien -->
+        <div class="col-md-12 mb-4">
+            <div class="card p-4">
+                <h5 class="mb-3 text-success"><i class="bi bi-robot"></i> Standardwerte für neue Strategien</h5>
+                <p class="text-muted small">Diese Werte werden automatisch ausgefüllt, wenn eine neue Strategie erstellt wird.</p>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Startkapital ($)</label>
+                        <input type="number" step="0.01" class="form-control bg-dark text-white border-secondary" name="balance" value="{{ default_strategy.balance }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Kategorie-Filter (Optional)</label>
+                        <input type="text" class="form-control bg-dark text-white border-secondary" name="category_filter" value="{{ default_strategy.category_filter }}">
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Min Quote</label>
+                        <input type="number" step="0.001" class="form-control bg-dark text-white border-secondary" name="min_prob" value="{{ default_strategy.min_prob }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Max Quote</label>
+                        <input type="number" step="0.001" class="form-control bg-dark text-white border-secondary" name="max_prob" value="{{ default_strategy.max_prob }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Max Laufzeit (Min)</label>
+                        <input type="number" class="form-control bg-dark text-white border-secondary" name="max_time_min" value="{{ default_strategy.max_time_min }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Min Liquidität ($)</label>
+                        <input type="number" step="1" class="form-control bg-dark text-white border-secondary" name="min_liquidity" value="{{ default_strategy.min_liquidity }}">
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Max Spread</label>
+                        <input type="number" step="0.001" class="form-control bg-dark text-white border-secondary" name="max_spread" value="{{ default_strategy.max_spread }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Einsatz pro Wette (%)</label>
+                        <input type="number" step="0.001" class="form-control bg-dark text-white border-secondary" name="bet_percentage" value="{{ default_strategy.bet_percentage }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Stop Loss Trigger (x)</label>
+                        <input type="number" step="0.001" class="form-control bg-dark text-white border-secondary" name="stop_loss_trigger" value="{{ default_strategy.stop_loss_trigger }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 d-flex justify-content-between">
+             <a href="/action/restart_server" class="btn btn-outline-danger" onclick="return confirm('Server wirklich neu starten? Alle laufenden Prozesse werden kurzzeitig unterbrochen.')"><i class="bi bi-power"></i> Server Neustarten</a>
+             <button type="submit" class="btn btn-primary btn-lg"><i class="bi bi-save"></i> Einstellungen Speichern</button>
+        </div>
+    </div>
+</form>
+"""
+
 # --- ROUTES ---
 @app.route("/")
 def home():
-    content = render_template_string(HTML_HOME_CONTENT, strategies=strategies, sys_logs=log_buffer)
+    content = render_template_string(HTML_HOME_CONTENT, strategies=strategies, sys_logs=log_buffer, default_strategy=DEFAULT_STRATEGY_CONFIG)
     navbar_stats = render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S"), update_available=UPDATE_AVAILABLE)
     return render_template_string(HTML_BASE, content=content, global_limit=GLOBAL_CONFIG['api_fetch_limit'], debug_mode=GLOBAL_CONFIG.get('debug', False), last_update=datetime.now().strftime("%H:%M:%S"), navbar_stats=navbar_stats)
 
@@ -784,6 +918,54 @@ def mass_edit_apply():
     if count > 0:
         save_data()
         sys_log(f"Massenänderung: {field} = {value} für {count} Strategien.")
+    return redirect("/")
+
+@app.route("/settings")
+def settings_page():
+    content = render_template_string(HTML_SETTINGS,
+                                     global_config=GLOBAL_CONFIG,
+                                     default_strategy=DEFAULT_STRATEGY_CONFIG)
+    return render_template_string(HTML_BASE,
+                                  content=content,
+                                  global_limit=GLOBAL_CONFIG['api_fetch_limit'],
+                                  debug_mode=GLOBAL_CONFIG.get('debug', False),
+                                  last_update=datetime.now().strftime("%H:%M:%S"),
+                                  navbar_stats=render_template_string(HTML_NAVBAR_STATS, global_limit=GLOBAL_CONFIG['api_fetch_limit'], last_update=datetime.now().strftime("%H:%M:%S")))
+
+@app.route("/settings/save", methods=["POST"])
+def settings_save():
+    # Update Global Config
+    try:
+        GLOBAL_CONFIG["check_interval"] = int(request.form.get("check_interval", 30))
+        GLOBAL_CONFIG["api_fetch_limit"] = int(request.form.get("api_fetch_limit", 3000))
+    except Exception as e:
+        sys_log(f"Fehler beim Speichern der globalen Einstellungen: {e}")
+
+    # Update Default Strategy Config
+    try:
+        DEFAULT_STRATEGY_CONFIG["balance"] = float(request.form.get("balance", "1000").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["min_prob"] = float(request.form.get("min_prob", "0.90").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["max_prob"] = float(request.form.get("max_prob", "0.98").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["max_time_min"] = int(request.form.get("max_time_min", "30"))
+        DEFAULT_STRATEGY_CONFIG["min_liquidity"] = float(request.form.get("min_liquidity", "5000").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["max_spread"] = float(request.form.get("max_spread", "0.05").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["stop_loss_trigger"] = float(request.form.get("stop_loss_trigger", "0.75").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["bet_percentage"] = float(request.form.get("bet_percentage", "0.05").replace(",", "."))
+        DEFAULT_STRATEGY_CONFIG["category_filter"] = request.form.get("category_filter", "").strip()
+    except Exception as e:
+        sys_log(f"Fehler beim Speichern der Standardwerte: {e}")
+
+    save_config()
+    sys_log("Einstellungen aktualisiert.")
+    return redirect("/settings")
+
+@app.route("/action/restart_server", methods=["POST", "GET"])
+def action_restart_server():
+    def restart_later():
+        time.sleep(1)
+        restart_server()
+    threading.Thread(target=restart_later).start()
+    sys_log("Restart angefordert...")
     return redirect("/")
 
 # --- OPTIMIERTE ENGINE ---
@@ -1065,6 +1247,7 @@ class Engine:
             time.sleep(GLOBAL_CONFIG["check_interval"])
 
 if __name__ == "__main__":
+    load_config()
     # Start Update Check on Boot
     threading.Thread(target=check_for_updates_logic, daemon=True).start()
 
