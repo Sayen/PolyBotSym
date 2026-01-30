@@ -168,7 +168,7 @@ app.secret_key = "polybot_secret"
 HTML_NAVBAR_STATS = """
 Scanne: {{ global_limit }} Märkte | Aktualisiert: <span id="lastUpdate">{{ last_update }}</span> |
 <a href="#" hx-get="/check_update" hx-target="#updateModalBody" data-bs-toggle="modal" data-bs-target="#updateModal" class="text-decoration-none ms-2">
-    <i class="bi bi-cloud-arrow-down-fill {{ 'text-warning' if update_available else 'text-secondary' }}" data-bs-toggle="tooltip" title="Updates prüfen"></i>
+    <i class="bi bi-cloud-arrow-down-fill fs-2 align-middle {{ 'text-warning' if update_available else 'text-secondary' }}" data-bs-toggle="tooltip" title="Updates prüfen"></i>
 </a>
 """
 
@@ -391,7 +391,15 @@ HTML_BASE = """
              var tooltips = target.querySelectorAll('[data-bs-toggle="tooltip"]');
              tooltips.forEach(function(el) {
                  var instance = bootstrap.Tooltip.getInstance(el);
-                 if(instance) instance.dispose();
+                 if(instance) {
+                    instance.hide();
+                    instance.dispose();
+                 }
+             });
+
+             // Extra safety: Remove any stray tooltip elements from body
+             document.querySelectorAll('.tooltip').forEach(function(el) {
+                 el.remove();
              });
         });
 
